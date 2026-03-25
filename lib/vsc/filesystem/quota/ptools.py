@@ -39,7 +39,7 @@ import requests
 
 from vsc.accountpage.client import AccountpageClient
 from vsc.config.base import GENT, VO_PREFIX_BY_SITE, VO_SHARED_PREFIX_BY_SITE, VscStorage
-from vsc.filesystem.quota.utils import QUOTA_USER_KIND, QUOTA_VO_KIND, DjangoPusher, QuotaException, UsageInformation
+from vsc.filesystem.quota.utils import QUOTA_USER_KIND, QUOTA_VO_KIND, DjangoPusher, UsageInformation
 from vsc.utils.script_tools import CLI
 
 DISK_CACHE_LOCATION = "/var/cache/pusage.cache"
@@ -81,50 +81,7 @@ def parse_metric_name(name):
     return kind, field  # field may be None if suffix is not in SUFFIX_MAP
 
 
-def consolidate(entries):
-    grouped = defaultdict(lambda: {"kind": None, "fields": {}})
 
-    for entry in entries:
-        name = entry.get("name", "")
-        kind, field = parse_metric_name(name)
-
-        if not kind or not field:
-            continue
-
-        tags = entry.get("tags", {})
-        if not all(k in tags for k in ("fs", "fileset")):
-            continue
-
-        # user may not be present for fileset-level metrics
-        entity = tags.get("user") or tags.get("fileset")
-        key = (tags["fs"], tags["fileset"], entity, kind)
-
-        grouped[key]["kind"] = kind
-        grouped[key]["fields"][field] = entry["gauge"]["value"]
-
-    results = []
-    for (fs, fileset, entity, kind), data in grouped.items():
-        f = data["fields"]
-        results.append(
-            UsageInformation(
-                filesystem=fs,
-                fileset=fileset,
-                entity=entity,
-                kind=kind,
-                block_usage=f.get("block_usage", 0.0),
-                block_soft=f.get("block_soft", 0.0),
-                block_hard=f.get("block_hard", 0.0),
-                block_doubt=f.get("block_doubt", 0.0),
-                block_expired=(False, 0),
-                files_usage=f.get("files_usage", 0.0),
-                files_soft=f.get("files_soft", 0.0),
-                files_hard=f.get("files_hard", 0.0),
-                files_doubt=f.get("files_doubt", 0.0),
-                files_expired=(False, 0),
-            )
-        )
-
-    return results
 
 
 class UsageReporter(CLI):
@@ -148,10 +105,60 @@ class UsageReporter(CLI):
             if cached_usage == event:
                 logging.debug("Event %s equals cached version", event)
             else:
-                self.cache.set(cache_key, event, expire=864000)
+                if not dry_run:
+                    self.cache.set(cache_key, event, expire=864000)
                 logging.debug("Event %s differs from %s, adding to usage list", event, cached_usage)
                 self.usage_list.append(event)
 
+    def consolidate(self, entries):
+        """
+        Assemble a single UsageInformation tuple based on the data coming in for the various
+        GPFS  metrics. Each of these comes on a single line.
+        """
+
+        grouped = defaultdict(lambda: {"kind": None, "fields": {}})
+
+        for entry in entries:
+            name = entry.get("name", "")
+            kind, field = parse_metric_name(name)
+
+            if not kind or not field:
+                continue
+
+            tags = entry.get("tags", {})
+            if not all(k in tags for k in ("fs", "fileset")):
+                continue
+
+            # user may not be present for fileset-level metrics
+            entity = tags.get("user") or tags.get("fileset")
+            key = (tags["fs"], tags["fileset"], entity, kind)
+
+            grouped[key]["kind"] = kind
+            grouped[key]["fields"][field] = entry["gauge"]["value"]
+
+        results = []
+        for (fs, fileset, entity, kind), data in grouped.items():
+            f = data["fields"]
+            usage = UsageInformation(
+                filesystem=fs,
+                fileset=fileset,
+                entity=entity,
+                kind=kind,
+                block_usage=f.get("block_usage", 0.0),
+                block_soft=f.get("block_soft", 0.0),
+                block_hard=f.get("block_hard", 0.0),
+                block_doubt=f.get("block_doubt", 0.0),
+                block_expired=(False, 0),
+                files_usage=f.get("files_usage", 0.0),
+                files_soft=f.get("files_soft", 0.0),
+                files_hard=f.get("files_hard", 0.0),
+                files_doubt=f.get("files_doubt", 0.0),
+                files_expired=(False, 0),
+            )
+            usage = self._update_usage(usage)
+            results.append(usage)
+
+        return results
     def scrape_metrics_endpoint(self):
 
         response = requests.get(
@@ -170,11 +177,11 @@ class UsageReporter(CLI):
             try:
                 entries.append(json.loads(line))
             except json.JSONDecodeError:
-                continue
+                continue  # Not sure, we may want to raise the error and stop
 
-        consolidated = consolidate(entries)
+        consolidated = self.consolidate(entries)
         for c in consolidated:
-            self.process_event(c)
+            self.process_event(c, self.options.dry_run)
 
     def do(self, dry_run):
         # pylint: disable=unused-argument
@@ -262,8 +269,8 @@ class UsageReporter(CLI):
         Update the quota information for an entity (user or fileset).
         """
 
-        block_expired = determine_grace_period(usage.block_expired)
-        files_expired = determine_grace_period(usage.files_expired)
+        block_expired = (False, None)
+        files_expired = (False, None)
 
         # when the filesystem gpfsbeat looked at is not actually something that is in the
         # config file, we shoud ignore it
@@ -289,32 +296,3 @@ class UsageReporter(CLI):
 
         logging.debug("Usage after replace: %s", usage)
         return usage
-
-
-# GPFS exporter does not provide this data
-def determine_grace_period(grace_string):
-    grace = GPFS_GRACE_REGEX.search(grace_string)
-    nograce = GPFS_NOGRACE_REGEX.search(grace_string)
-
-    if nograce:
-        expired = (False, None)
-    elif grace:
-        grace = grace.groupdict()
-        grace_time = 0
-        if grace["days"]:
-            grace_time = int(grace["days"]) * 86400
-        elif grace["hours"]:
-            grace_time = int(grace["hours"]) * 3600
-        elif grace["minutes"]:
-            grace_time = int(grace["minutes"]) * 60
-        elif grace["expired"]:
-            grace_time = 0
-        else:
-            logging.error("Unprocessed grace groupdict %s (from string %s).", grace, grace_string)
-            raise QuotaException("Cannot process grace time string")
-        expired = (True, grace_time)
-    else:
-        logging.error("Unknown grace string %s.", grace_string)
-        raise QuotaException(f"Cannot process grace information ({grace_string})")
-
-    return expired
