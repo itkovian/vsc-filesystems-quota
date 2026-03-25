@@ -38,7 +38,6 @@ Script to check for quota transgressions and notify the offending users.
 """
 from vsc.filesystem.quota.ptools import UsageReporter
 
-
 if __name__ == '__main__':
 
     reporter = UsageReporter()

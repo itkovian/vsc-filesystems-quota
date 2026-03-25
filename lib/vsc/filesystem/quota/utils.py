@@ -30,12 +30,10 @@ Helper class for pushing data to django webapp
 """
 
 import logging
-
+import re
 from collections import namedtuple
-from vsc.kafka.cli import ConsumerCLI
 
-from vsc.accountpage.client import AccountpageClient
-from vsc.config.base import GENT, STORAGE_SHARED_SUFFIX, VO_PREFIX_BY_SITE, VO_SHARED_PREFIX_BY_SITE, VscStorage
+from vsc.config.base import STORAGE_SHARED_SUFFIX
 
 DISK_CACHE_LOCATION = "/var/cache/kusage.cache"
 

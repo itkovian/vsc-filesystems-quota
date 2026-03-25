@@ -29,19 +29,17 @@ Helper functions for all things quota related.
 @author: Andy Georges (Ghent University)
 """
 
-
-import diskcache as dc
 import json
 import logging
 import re
-import requests
 from collections import defaultdict
 
-from collections import namedtuple
+import diskcache as dc
+import requests
 
 from vsc.accountpage.client import AccountpageClient
-from vsc.config.base import GENT, STORAGE_SHARED_SUFFIX, VO_PREFIX_BY_SITE, VO_SHARED_PREFIX_BY_SITE, VscStorage
-from vsc.filesystem.quota.utils import UsageInformation, DjangoPusher, QuotaException, QUOTA_USER_KIND, QUOTA_VO_KIND
+from vsc.config.base import GENT, VO_PREFIX_BY_SITE, VO_SHARED_PREFIX_BY_SITE, VscStorage
+from vsc.filesystem.quota.utils import QUOTA_USER_KIND, QUOTA_VO_KIND, DjangoPusher, QuotaException, UsageInformation
 from vsc.utils.script_tools import CLI
 
 DISK_CACHE_LOCATION = "/var/cache/pusage.cache"
@@ -63,6 +61,7 @@ SUFFIX_MAP = {
     "used_files": "files_usage",
 }
 
+
 def parse_metric_name(name):
     """
     Returns (kind, field) or (None, None) if not a relevant GPFS metric.
@@ -80,6 +79,7 @@ def parse_metric_name(name):
     field = SUFFIX_MAP.get(suffix, None)
 
     return kind, field  # field may be None if suffix is not in SUFFIX_MAP
+
 
 def consolidate(entries):
     grouped = defaultdict(lambda: {"kind": None, "fields": {}})
@@ -105,22 +105,24 @@ def consolidate(entries):
     results = []
     for (fs, fileset, entity, kind), data in grouped.items():
         f = data["fields"]
-        results.append(UsageInformation(
-            filesystem=fs,
-            fileset=fileset,
-            entity=entity,
-            kind=kind,
-            block_usage=f.get("block_usage", 0.0),
-            block_soft=f.get("block_soft", 0.0),
-            block_hard=f.get("block_hard", 0.0),
-            block_doubt=f.get("block_doubt", 0.0),
-            block_expired=(False, 0),
-            files_usage=f.get("files_usage", 0.0),
-            files_soft=f.get("files_soft", 0.0),
-            files_hard=f.get("files_hard", 0.0),
-            files_doubt=f.get("files_doubt", 0.0),
-            files_expired=(False, 0),
-        ))
+        results.append(
+            UsageInformation(
+                filesystem=fs,
+                fileset=fileset,
+                entity=entity,
+                kind=kind,
+                block_usage=f.get("block_usage", 0.0),
+                block_soft=f.get("block_soft", 0.0),
+                block_hard=f.get("block_hard", 0.0),
+                block_doubt=f.get("block_doubt", 0.0),
+                block_expired=(False, 0),
+                files_usage=f.get("files_usage", 0.0),
+                files_soft=f.get("files_soft", 0.0),
+                files_hard=f.get("files_hard", 0.0),
+                files_doubt=f.get("files_doubt", 0.0),
+                files_expired=(False, 0),
+            )
+        )
 
     return results
 
@@ -156,7 +158,7 @@ class UsageReporter(CLI):
             url=self.options.metrics_url,
             auth=(self.options.metrics_user, self.options.metrics_passwd),
             cert=(self.options.cert_file, self.options.key_file),
-            verify=self.options.ca_file
+            verify=self.options.ca_file,
         )
         response.raise_for_status()
 
@@ -174,11 +176,10 @@ class UsageReporter(CLI):
         for c in consolidated:
             self.process_event(c)
 
-
     def do(self, dry_run):
         # pylint: disable=unused-argument
 
-        ap_client = AccountpageClient(token=self.options.access_token, url=self.options.account_page_url  + "/api/")
+        ap_client = AccountpageClient(token=self.options.access_token, url=self.options.account_page_url + "/api/")
 
         self.storage = VscStorage()
         self.system_storage_map = {k: self.storage[GENT][k].filesystem for k in self.storage if k != GENT}
@@ -290,7 +291,7 @@ class UsageReporter(CLI):
         return usage
 
 
-# TODO: move this into gpfsbeat
+# GPFS exporter does not provide this data
 def determine_grace_period(grace_string):
     grace = GPFS_GRACE_REGEX.search(grace_string)
     nograce = GPFS_NOGRACE_REGEX.search(grace_string)
