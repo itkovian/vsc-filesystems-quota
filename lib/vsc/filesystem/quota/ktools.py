@@ -39,7 +39,14 @@ from vsc.kafka.cli import ConsumerCLI
 
 from vsc.accountpage.client import AccountpageClient
 from vsc.config.base import GENT, VO_PREFIX_BY_SITE, VO_SHARED_PREFIX_BY_SITE, VscStorage
-from vsc.filesystem.quota.utils import UsageInformation, DjangoPusher, QuotaException, QUOTA_USER_KIND, QUOTA_VO_KIND
+from vsc.filesystem.quota.utils import (
+    UsageInformation,
+    DjangoPusher,
+    QuotaException,
+    QUOTA_USER_KIND,
+    QUOTA_VO_KIND,
+    determine_grace_period,
+)
 
 DISK_CACHE_LOCATION = "/var/cache/kusage.cache"
 
@@ -138,7 +145,7 @@ class UsageReporter(ConsumerCLI):
     def do(self, dry_run):
         # pylint: disable=unused-argument
 
-        ap_client = AccountpageClient(token=self.options.access_token, url=self.options.account_page_url  + "/api/")
+        ap_client = AccountpageClient(token=self.options.access_token, url=self.options.account_page_url + "/api/")
 
         self.storage = VscStorage()
         self.system_storage_map = {k: self.storage[GENT][k].filesystem for k in self.storage if k != GENT}
@@ -248,32 +255,3 @@ class UsageReporter(ConsumerCLI):
 
         logging.debug("Usage after replace: %s", usage)
         return usage
-
-
-# TODO: move this into gpfsbeat
-def determine_grace_period(grace_string):
-    grace = GPFS_GRACE_REGEX.search(grace_string)
-    nograce = GPFS_NOGRACE_REGEX.search(grace_string)
-
-    if nograce:
-        expired = (False, None)
-    elif grace:
-        grace = grace.groupdict()
-        grace_time = 0
-        if grace["days"]:
-            grace_time = int(grace["days"]) * 86400
-        elif grace["hours"]:
-            grace_time = int(grace["hours"]) * 3600
-        elif grace["minutes"]:
-            grace_time = int(grace["minutes"]) * 60
-        elif grace["expired"]:
-            grace_time = 0
-        else:
-            logging.error("Unprocessed grace groupdict %s (from string %s).", grace, grace_string)
-            raise QuotaException("Cannot process grace time string")
-        expired = (True, grace_time)
-    else:
-        logging.error("Unknown grace string %s.", grace_string)
-        raise QuotaException(f"Cannot process grace information ({grace_string})")
-
-    return expired

@@ -170,3 +170,32 @@ class DjangoPusher:
             except Exception:
                 logging.error("Could not store quota info in account web app")
                 raise
+
+
+# TODO: move this into gpfsbeat
+def determine_grace_period(grace_string):
+    grace = GPFS_GRACE_REGEX.search(grace_string)
+    nograce = GPFS_NOGRACE_REGEX.search(grace_string)
+
+    if nograce:
+        expired = (False, None)
+    elif grace:
+        grace = grace.groupdict()
+        grace_time = 0
+        if grace["days"]:
+            grace_time = int(grace["days"]) * 86400
+        elif grace["hours"]:
+            grace_time = int(grace["hours"]) * 3600
+        elif grace["minutes"]:
+            grace_time = int(grace["minutes"]) * 60
+        elif grace["expired"]:
+            grace_time = 0
+        else:
+            logging.error("Unprocessed grace groupdict %s (from string %s).", grace, grace_string)
+            raise QuotaException("Cannot process grace time string")
+        expired = (True, grace_time)
+    else:
+        logging.error("Unknown grace string %s.", grace_string)
+        raise QuotaException(f"Cannot process grace information ({grace_string})")
+
+    return expired
