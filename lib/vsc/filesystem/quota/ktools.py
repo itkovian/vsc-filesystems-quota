@@ -42,7 +42,6 @@ from vsc.config.base import GENT, VO_PREFIX_BY_SITE, VO_SHARED_PREFIX_BY_SITE, V
 from vsc.filesystem.quota.utils import (
     UsageInformation,
     DjangoPusher,
-    QuotaException,
     QUOTA_USER_KIND,
     QUOTA_VO_KIND,
     determine_grace_period,

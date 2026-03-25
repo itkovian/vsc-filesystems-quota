@@ -81,9 +81,6 @@ def parse_metric_name(name):
     return kind, field  # field may be None if suffix is not in SUFFIX_MAP
 
 
-
-
-
 class UsageReporter(CLI):
     CLI_OPTIONS = {
         "storage": ("the VSC filesystems that are checked by this script", None, "extend", []),
@@ -159,6 +156,7 @@ class UsageReporter(CLI):
             results.append(usage)
 
         return results
+
     def scrape_metrics_endpoint(self):
 
         response = requests.get(
