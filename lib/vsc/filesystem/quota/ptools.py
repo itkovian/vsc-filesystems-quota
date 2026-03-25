@@ -27,102 +27,117 @@
 Helper functions for all things quota related.
 
 @author: Andy Georges (Ghent University)
-@author: Ward Poelmans (Vrije Universiteit Brussel)
 """
 
+
+import diskcache as dc
 import json
 import logging
 import re
-import diskcache as dc
+import requests
+from collections import defaultdict
 
 from collections import namedtuple
-from vsc.kafka.cli import ConsumerCLI
 
 from vsc.accountpage.client import AccountpageClient
 from vsc.config.base import GENT, STORAGE_SHARED_SUFFIX, VO_PREFIX_BY_SITE, VO_SHARED_PREFIX_BY_SITE, VscStorage
 from vsc.filesystem.quota.utils import UsageInformation, DjangoPusher, QuotaException, QUOTA_USER_KIND, QUOTA_VO_KIND
+from vsc.utils.script_tools import CLI
 
-DISK_CACHE_LOCATION = "/var/cache/kusage.cache"
+DISK_CACHE_LOCATION = "/var/cache/pusage.cache"
 
-GPFS_GRACE_REGEX = re.compile(
-    r"(?P<days>\d+)\s*days?|(?P<hours>\d+)\s*hours?|(?P<minutes>\d+)\s*minutes?|(?P<expired>expired)"
-)
+KIND_MAP = {
+    "user": "USR",
+    "fileset": "FILESET",
+    "group": "GROUP",
+}
 
-GPFS_NOGRACE_REGEX = re.compile(r"none", re.I)
+SUFFIX_MAP = {
+    "in_doubt_bytes": "block_doubt",
+    "in_doubt_files": "files_doubt",
+    "limit_bytes": "block_hard",
+    "limit_files": "files_hard",
+    "quota_bytes": "block_soft",
+    "quota_files": "files_soft",
+    "used_bytes": "block_usage",
+    "used_files": "files_usage",
+}
+
+def parse_metric_name(name):
+    """
+    Returns (kind, field) or (None, None) if not a relevant GPFS metric.
+    e.g. gpfs_user_used_files -> ("USR", "files_usage")
+    """
+    parts = name.split("_")
+    if parts[0] != "gpfs" or len(parts) < 3:
+        return None, None
+
+    kind = KIND_MAP.get(parts[1], None)
+    if not kind:
+        return None, None
+
+    suffix = "_".join(parts[2:])
+    field = SUFFIX_MAP.get(suffix, None)
+
+    return kind, field  # field may be None if suffix is not in SUFFIX_MAP
+
+def consolidate(entries):
+    grouped = defaultdict(lambda: {"kind": None, "fields": {}})
+
+    for entry in entries:
+        name = entry.get("name", "")
+        kind, field = parse_metric_name(name)
+
+        if not kind or not field:
+            continue
+
+        tags = entry.get("tags", {})
+        if not all(k in tags for k in ("fs", "fileset")):
+            continue
+
+        # user may not be present for fileset-level metrics
+        entity = tags.get("user") or tags.get("fileset")
+        key = (tags["fs"], tags["fileset"], entity, kind)
+
+        grouped[key]["kind"] = kind
+        grouped[key]["fields"][field] = entry["gauge"]["value"]
+
+    results = []
+    for (fs, fileset, entity, kind), data in grouped.items():
+        f = data["fields"]
+        results.append(UsageInformation(
+            filesystem=fs,
+            fileset=fileset,
+            entity=entity,
+            kind=kind,
+            block_usage=f.get("block_usage", 0.0),
+            block_soft=f.get("block_soft", 0.0),
+            block_hard=f.get("block_hard", 0.0),
+            block_doubt=f.get("block_doubt", 0.0),
+            block_expired=(False, 0),
+            files_usage=f.get("files_usage", 0.0),
+            files_soft=f.get("files_soft", 0.0),
+            files_hard=f.get("files_hard", 0.0),
+            files_doubt=f.get("files_doubt", 0.0),
+            files_expired=(False, 0),
+        ))
+
+    return results
 
 
-class UsageReporter(ConsumerCLI):
+class UsageReporter(CLI):
     CLI_OPTIONS = {
         "storage": ("the VSC filesystems that are checked by this script", None, "extend", []),
         "account_page_url": ("Base URL of the account page", None, "store", "https://account.vscentrum.be/django"),
         "access_token": ("OAuth2 token to access the account page REST API", None, "store", None),
         "host_institute": ("Name of the institute where this script is being run", str, "store", GENT),
-        "group": ("Kafka consumer group", None, "store", "ap-quota"),
+        "metrics_url": ("Endpoint to scrape the metrics from", str, "store", None),
+        "metrics_user": ("User to talk to the metric endpoint", str, "store", "prometheus"),
+        "metrics_passwd": ("Password for user talking to metrics endpoint", str, "store", None),
+        "ca_file": ("CA location", str, "store", "/etc/ipa/ca.crt"),
+        "key_file": ("Key location", str, "store", "/etc/ipa/quattor/keys/host.key"),
+        "cert_file": ("Cert location", str, "store", "/etc/ipa/quattor/certs/host.pem"),
     }
-
-    def convert_msg(self, msg):
-        """
-        Process msg as JSON.
-        Return None on failure or if the message holds no usage information.
-
-        full message looks like:
-        {
-              "@timestamp": "2023-01-09T19:19:19.518Z",
-              "@metadata": {
-                "beat": "gpfsbeat",
-                "type": "_doc",
-                "version": "7.10.0"
-              },
-              "quota": {
-                "files_soft": 0,
-                "kind": "USR",
-                "files_usage": 2,
-                "block_usage": 0,
-                "filesystem": "arcaninescratch",
-                "entity": "vsc40075",
-                "block_hard": 1048576,
-                "files_expired": "none",
-                "fileset": "gvo00002",
-                "block_soft": 995328,
-                "files_hard": 0,
-                "block_expired": "none",
-                "block_doubt": 0,
-                "files_doubt": 0
-              },
-              "type": "gpfsbeat",
-              "counter": 657,
-              "ecs": {
-                "version": "1.6.0"
-              },
-              "host": {
-                "name": "gpfsbeat"
-              },
-              "agent": {
-                "ephemeral_id": "snip",
-                "id": "snip",
-                "name": "gpfsbeat",
-                "type": "gpfsbeat",
-                "version": "7.10.0",
-                "hostname": "myhost.mydomain"
-              }
-        }
-        """
-        value = msg.value
-        if value:
-            try:
-                event = json.loads(value)
-            except ValueError:
-                logging.error("Failed to load as JSON: %s", value)
-                return None
-
-            if "quota" in event:
-                kwargs = {field: event["quota"][field] for field in UsageInformation._fields}
-                return self._update_usage(UsageInformation(**kwargs))
-            else:
-                return None
-        else:
-            logging.error("msg has no value %s (%s)", msg, type(msg))
-            return None
 
     def process_event(self, event, dry_run):
         if event and event.filesystem in self.system_storage_map.values():
@@ -134,6 +149,31 @@ class UsageReporter(ConsumerCLI):
                 self.cache.set(cache_key, event, expire=864000)
                 logging.debug("Event %s differs from %s, adding to usage list", event, cached_usage)
                 self.usage_list.append(event)
+
+    def scrape_metrics_endpoint(self):
+
+        response = requests.get(
+            url=self.options.metrics_url,
+            auth=(self.options.metrics_user, self.options.metrics_passwd),
+            cert=(self.options.cert_file, self.options.key_file),
+            verify=self.options.ca_file
+        )
+        response.raise_for_status()
+
+        entries = []
+        for line in response.text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entries.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+
+        consolidated = consolidate(entries)
+        for c in consolidated:
+            self.process_event(c)
+
 
     def do(self, dry_run):
         # pylint: disable=unused-argument
@@ -153,7 +193,7 @@ class UsageReporter(ConsumerCLI):
         self.usage_list = []
         with dc.Cache(DISK_CACHE_LOCATION) as cache:
             self.cache = cache
-            super().do(dry_run)
+            self.scrape_metrics_endpoint()
 
         for storage_name in self.options.storage:
             logging.info("Processing quota for storage_name %s", storage_name)
