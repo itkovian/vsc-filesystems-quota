@@ -35,11 +35,10 @@ import logging
 import re
 import diskcache as dc
 
-from collections import namedtuple
 from vsc.kafka.cli import ConsumerCLI
 
 from vsc.accountpage.client import AccountpageClient
-from vsc.config.base import GENT, STORAGE_SHARED_SUFFIX, VO_PREFIX_BY_SITE, VO_SHARED_PREFIX_BY_SITE, VscStorage
+from vsc.config.base import GENT, VO_PREFIX_BY_SITE, VO_SHARED_PREFIX_BY_SITE, VscStorage
 from vsc.filesystem.quota.utils import UsageInformation, DjangoPusher, QuotaException, QUOTA_USER_KIND, QUOTA_VO_KIND
 
 DISK_CACHE_LOCATION = "/var/cache/kusage.cache"
@@ -131,7 +130,8 @@ class UsageReporter(ConsumerCLI):
             if cached_usage == event:
                 logging.debug("Event %s equals cached version", event)
             else:
-                self.cache.set(cache_key, event, expire=864000)
+                if not dry_run:
+                    self.cache.set(cache_key, event, expire=864000)
                 logging.debug("Event %s differs from %s, adding to usage list", event, cached_usage)
                 self.usage_list.append(event)
 
