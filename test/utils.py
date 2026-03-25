@@ -32,11 +32,11 @@ Tests for all helper functions in vsc.filesystems.quota.tools.
 import os
 import mock
 
-import vsc.filesystem.quota.ktools as tools
+import vsc.filesystem.quota.utils as tools
 import vsc.config.base as config
 
 from vsc.config.base import VSC_DATA, GENT
-from vsc.filesystem.quota.ktools import DjangoPusher, determine_grace_period, QUOTA_USER_KIND
+from vsc.filesystem.quota.utils import DjangoPusher, determine_grace_period, QUOTA_USER_KIND
 from vsc.install.testing import TestCase
 
 config.STORAGE_CONFIGURATION_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'filesystem_info.conf')
