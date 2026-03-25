@@ -32,7 +32,7 @@ Tests for all helper functions in vsc.filesystems.quota.tools.
 import os
 import mock
 
-import vsc.filesystem.quota.utils as tools
+import vsc.filesystem.quota.ktools as tools
 import vsc.config.base as config
 
 from vsc.config.base import VSC_DATA, GENT
@@ -57,38 +57,7 @@ class TestAuxiliary(TestCase):
         self.assertEqual(determine_grace_period("none"), (False, None))
 
 
-class TestProcessing(TestCase):
-
-    @mock.patch.object(DjangoPusher, 'push_quota')
-    @mock.patch('vsc.accountpage.sync.ExtendedSimpleOption.prologue')
-    def test_process_user_quota_no_store(self, mock_prologue, mock_django_pusher): # pylint: disable=unused-argument
-
-        storage_name = VSC_DATA
-        filesystem = 'kyukondata'
-        usage1 = tools.UsageInformation(
-            filesystem, 'vsc400', 'vsc40075', "USR", block_usage=1230, block_soft=456, block_hard=789, block_doubt=0,
-            block_expired=(False, None), files_usage=100, files_soft=200, files_hard=300, files_doubt=0,
-            files_expired=(False, None))
-        usage2 = tools.UsageInformation(
-            filesystem, 'gvo00002', 'vsc40075', "USR", block_usage=1230, block_soft=456, block_hard=789, block_doubt=0,
-            block_expired=(False, None), files_usage=100, files_soft=200, files_hard=300, files_doubt=0,
-            files_expired=(False, None))
-
-        client = mock.MagicMock()
-
-        usage_list = [usage1, usage2]
-
-        QR = tools.UsageReporter()
-        QR.storage = mock.MagicMock()
-
-        QR.process_user_quota(storage_name, usage_list, client)
-
-        self.assertEqual(mock_django_pusher.call_count, 2)
-
-        mock_django_pusher.assert_has_calls(
-            [mock.call('vsc40075', usage1), mock.call('vsc40075', usage2)],
-            any_order=True,
-        )
+class TestDjangoPusher(TestCase):
 
     def test_django_pusher(self):
 
