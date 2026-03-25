@@ -32,7 +32,6 @@ Tests for all helper functions in vsc.filesystems.quota.tools.
 
 import json
 import os
-import pytest
 import vsc.config.base as config
 from vsc.install.testing import TestCase
 
