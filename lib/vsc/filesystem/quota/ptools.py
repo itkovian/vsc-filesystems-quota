@@ -308,7 +308,7 @@ class UsageReporter(CLI):
         block_expired = (False, None)
         files_expired = (False, None)
 
-        # when the filesystem gpfsbeat looked at is not actually something that is in the
+        # when we get data from a filesystem that is not in the
         # config file, we shoud ignore it
         try:
             replication_factor = self.replication_factors[usage.filesystem]
