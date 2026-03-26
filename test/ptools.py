@@ -133,7 +133,7 @@ class TestConsolidate(TestCase):
         assert len(results) == 1
         assert results[0].files_usage == 100
         assert results[0].kind == "USR"
-        assert results[0].entity == "vsc40001"
+        assert results[0].entity == "2540001"
 
     def test_multiple_metrics_same_user_consolidated(self):
         reporter = make_reporter()
