@@ -31,7 +31,9 @@ Tests for all helper functions in vsc.filesystems.quota.tools.
 """
 
 import os
+import pwd
 import vsc.config.base as config
+from unittest.mock import MagicMock, patch
 from vsc.install.testing import TestCase
 
 
@@ -145,3 +147,145 @@ class TestConsolidate(TestCase):
         assert len(results) == 1
         assert results[0].files_usage == 100
         assert results[0].block_usage == 2048
+
+
+
+
+class TestTranslateGpfs(TestCase):
+    def test_usr_known_uid(self):
+        reporter = make_reporter()
+        reporter.fileset_map = {"kyukonhome": {"99": {"filesetName": "gvo00001"}}}
+
+        mock_pw = MagicMock()
+        mock_pw.pw_name = "vsc40001"
+
+        with patch("vsc.filesystem.quota.ptools.pwd.getpwuid", return_value=mock_pw):
+            entity, fileset = reporter._translate_gpfs("2540001", "USR", "99", "kyukonhome")
+
+        assert entity == "vsc40001"
+        assert fileset == "gvo00001"
+
+    def test_usr_unknown_uid(self):
+        reporter = make_reporter()
+        reporter.fileset_map = {}
+
+        with patch("vsc.filesystem.quota.ptools.pwd.getpwuid", side_effect=KeyError):
+            entity, fileset = reporter._translate_gpfs("9999999", "USR", "99", "kyukonhome")
+
+        assert entity is None
+        assert fileset is None
+
+    def test_usr_non_numeric_entity(self):
+        reporter = make_reporter()
+        reporter.fileset_map = {}
+
+        entity, fileset = reporter._translate_gpfs("notanumber", "USR", "99", "kyukonhome")
+
+        assert entity is None
+        assert fileset is None
+
+    def test_fileset_kind_skips_pwd_lookup(self):
+        reporter = make_reporter()
+        reporter.fileset_map = {}
+
+        with patch("vsc.filesystem.quota.ptools.pwd.getpwuid") as mock_pwd:
+            entity, fileset = reporter._translate_gpfs("gvo00001", "FILESET", "gvo00001", "kyukonhome")
+
+        mock_pwd.assert_not_called()
+        assert entity == "gvo00001"
+        assert fileset == "gvo00001"
+
+
+class TestProcessEvent(TestCase):
+    def _make_usage(self, filesystem="kyukonhome", fileset="99", entity="2540001", kind="USR"):
+        return UsageInformation(
+            filesystem=filesystem, fileset=fileset, entity=entity, kind=kind,
+            block_usage=100, block_soft=200, block_hard=300, block_doubt=0,
+            block_expired=(False, None), files_usage=10, files_soft=20, files_hard=30,
+            files_doubt=0, files_expired=(False, None),
+        )
+
+    def _make_reporter_with_cache(self, cached_value=None):
+        reporter = make_reporter()
+        reporter.fileset_map = {"kyukonhome": {"99": {"filesetName": "gvo00001"}}}
+        mock_cache = MagicMock()
+        mock_cache.get.return_value = cached_value
+        reporter.cache = mock_cache
+        return reporter
+
+    def test_usr_new_event_translated_and_added(self):
+        reporter = self._make_reporter_with_cache(cached_value=None)
+        event = self._make_usage()
+
+        mock_pw = MagicMock()
+        mock_pw.pw_name = "vsc40001"
+
+        with patch("vsc.filesystem.quota.ptools.pwd.getpwuid", return_value=mock_pw):
+            reporter.process_event(event, dry_run=False)
+
+        assert len(reporter.usage_list) == 1
+        assert reporter.usage_list[0].entity == "vsc40001"
+        assert reporter.usage_list[0].fileset == "gvo00001"
+
+    def test_usr_cached_unchanged_event_not_added(self):
+        event = self._make_usage()
+        reporter = self._make_reporter_with_cache(cached_value=event)
+
+        reporter.process_event(event, dry_run=False)
+
+        assert reporter.usage_list == []
+
+    def test_usr_unknown_uid_not_added(self):
+        reporter = self._make_reporter_with_cache(cached_value=None)
+        event = self._make_usage()
+
+        with patch("vsc.filesystem.quota.ptools.pwd.getpwuid", side_effect=KeyError):
+            reporter.process_event(event, dry_run=False)
+
+        assert reporter.usage_list == []
+
+    def test_fileset_new_event_added_without_translation(self):
+        reporter = self._make_reporter_with_cache(cached_value=None)
+        event = self._make_usage(entity="gvo00001", kind="FILESET", fileset="gvo00001")
+
+        reporter.process_event(event, dry_run=False)
+
+        assert len(reporter.usage_list) == 1
+        assert reporter.usage_list[0].entity == "gvo00001"
+
+    def test_fileset_cached_unchanged_event_not_added(self):
+        event = self._make_usage(entity="gvo00001", kind="FILESET", fileset="gvo00001")
+        reporter = self._make_reporter_with_cache(cached_value=event)
+
+        reporter.process_event(event, dry_run=False)
+
+        assert reporter.usage_list == []
+
+    def test_cache_not_updated_on_dry_run(self):
+        reporter = self._make_reporter_with_cache(cached_value=None)
+        event = self._make_usage(entity="gvo00001", kind="FILESET", fileset="gvo00001")
+
+        reporter.process_event(event, dry_run=True)
+
+        reporter.cache.set.assert_not_called()
+
+    def test_cache_updated_when_not_dry_run(self):
+        reporter = self._make_reporter_with_cache(cached_value=None)
+        event = self._make_usage(entity="gvo00001", kind="FILESET", fileset="gvo00001")
+
+        reporter.process_event(event, dry_run=False)
+
+        reporter.cache.set.assert_called_once()
+
+    def test_event_not_in_storage_map_ignored(self):
+        reporter = self._make_reporter_with_cache(cached_value=None)
+        event = self._make_usage(filesystem="unknownfs")
+
+        reporter.process_event(event, dry_run=False)
+
+        assert reporter.usage_list == []
+
+    def test_none_event_ignored(self):
+        reporter = self._make_reporter_with_cache(cached_value=None)
+        reporter.process_event(None, dry_run=False)
+        assert reporter.usage_list == []
