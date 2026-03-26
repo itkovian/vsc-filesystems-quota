@@ -33,12 +33,14 @@ import json
 import logging
 import re
 from collections import defaultdict
+from prometheus_client.parser import text_string_to_metric_families
 
 import diskcache as dc
 import requests
 
 from vsc.accountpage.client import AccountpageClient
 from vsc.config.base import GENT, VO_PREFIX_BY_SITE, VO_SHARED_PREFIX_BY_SITE, VscStorage
+from vsc.filesystem.gpfs import GpfsOperations
 from vsc.filesystem.quota.utils import QUOTA_USER_KIND, QUOTA_VO_KIND, DjangoPusher, UsageInformation
 from vsc.utils.script_tools import CLI
 
@@ -81,6 +83,8 @@ def parse_metric_name(name):
     return kind, field  # field may be None if suffix is not in SUFFIX_MAP
 
 
+
+
 class UsageReporter(CLI):
     CLI_OPTIONS = {
         "storage": ("the VSC filesystems that are checked by this script", None, "extend", []),
@@ -94,6 +98,15 @@ class UsageReporter(CLI):
         "key_file": ("Key location", str, "store", "/etc/ipa/quattor/keys/host.key"),
         "cert_file": ("Cert location", str, "store", "/etc/ipa/quattor/certs/host.pem"),
     }
+
+    def _translate_gpfs(self, entity, kind, fileset, fs):
+
+        if kind == "USR":
+            entity = "vsc" + entity[2:]   # translate to the actual VSC ID
+            fileset = self.fileset_map[fs][fileset]["filesetName"]
+
+        return entity, fileset
+
 
     def process_event(self, event, dry_run):
         if event and event.filesystem in self.system_storage_map.values():
@@ -127,11 +140,17 @@ class UsageReporter(CLI):
                 continue
 
             # user may not be present for fileset-level metrics
-            entity = tags.get("user") or tags.get("fileset")
-            key = (tags["fs"], tags["fileset"], entity, kind)
+            entity = tags.get("user", None) or tags.get("fileset", None)
+
+            # user and fileset may be a number and need translation
+            entity, fileset = self._translate_gpfs(entity, kind, tags["fileset"], tags["fs"])
+
+            logging.debug("entry data: kind %s - fs %s - fileset %s - entity -%s", kind, tags["fs"], fileset, entity)
+
+            key = (tags["fs"], fileset, entity, kind)
 
             grouped[key]["kind"] = kind
-            grouped[key]["fields"][field] = entry["gauge"]["value"]
+            grouped[key]["fields"][field] = entry["value"]
 
         results = []
         for (fs, fileset, entity, kind), data in grouped.items():
@@ -153,6 +172,7 @@ class UsageReporter(CLI):
                 files_expired=(False, 0),
             )
             usage = self._update_usage(usage)
+            logging.debug("Appending usage: %s", usage)
             results.append(usage)
 
         return results
@@ -168,14 +188,16 @@ class UsageReporter(CLI):
         response.raise_for_status()
 
         entries = []
-        for line in response.text.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                entries.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue  # Not sure, we may want to raise the error and stop
+        for family in text_string_to_metric_families(response.text):
+            for sample in family.samples:
+                #logging.debug("Got data: %s, %s, %s", sample.name, sample.labels, sample.value)
+                entries.append({
+                    "name": sample.name,
+                    "tags": sample.labels,  # already a dict: {"fs": ..., "fileset": ..., "user": ...}
+                    "value": sample.value,
+                })
+
+        logging.debug("Got %d entries", len(entries))
 
         consolidated = self.consolidate(entries)
         for c in consolidated:
@@ -194,7 +216,10 @@ class UsageReporter(CLI):
             if k != GENT
         }
 
-        logging.info("storage map: %s", self.system_storage_map)
+        g = GpfsOperations()
+        self.fileset_map = g.list_filesets()
+
+        logging.debug("storage map: %s", self.system_storage_map)
 
         self.usage_list = []
         with dc.Cache(DISK_CACHE_LOCATION) as cache:
