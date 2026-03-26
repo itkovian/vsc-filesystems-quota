@@ -106,6 +106,9 @@ def make_reporter(filesystems=None, replication_factors=None):
     reporter.options.cert_file = "/etc/ipa/quattor/certs/host.pem"
     reporter.options.key_file = "/etc/ipa/quattor/keys/host.key"
     reporter.options.ca_file = "/etc/ipa/ca.crt"
+    reporter.fileset_map = {
+        "kyukonhome": { "99": { "filesetName": "gvo00002"}},
+    }
     return reporter
 
 def make_entry(name, fs, fileset, user=None, value=0.0):
@@ -116,8 +119,8 @@ def make_entry(name, fs, fileset, user=None, value=0.0):
         "name": name,
         "tags": tags,
         "timestamp": "2026-03-25T08:52:36.790027879Z",
-        "kind": "absolute",
-        "gauge": {"value": value},
+        "kind": "USR",
+        "value": value,
     }
 
 
@@ -125,7 +128,7 @@ class TestConsolidate(TestCase):
 
     def test_single_user_metric(self):
         reporter = make_reporter()
-        entries = [make_entry("gpfs_user_used_files", "kyukonhome", "99", "vsc40001", 100.0)]
+        entries = [make_entry("gpfs_user_used_files", "kyukonhome", "99", "2540001", 100.0)]
         results = reporter.consolidate(entries)
         assert len(results) == 1
         assert results[0].files_usage == 100
@@ -135,8 +138,8 @@ class TestConsolidate(TestCase):
     def test_multiple_metrics_same_user_consolidated(self):
         reporter = make_reporter()
         entries = [
-            make_entry("gpfs_user_used_files", "kyukonhome", "99", "vsc40001", 100.0),
-            make_entry("gpfs_user_used_bytes", "kyukonhome", "99", "vsc40001", 2048.0),
+            make_entry("gpfs_user_used_files", "kyukonhome", "99", "2540001", 100.0),
+            make_entry("gpfs_user_used_bytes", "kyukonhome", "99", "2540001", 2048.0),
         ]
         results = reporter.consolidate(entries)
         assert len(results) == 1
