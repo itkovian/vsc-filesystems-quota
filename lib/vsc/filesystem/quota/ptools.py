@@ -83,8 +83,6 @@ def parse_metric_name(name):
     return kind, field  # field may be None if suffix is not in SUFFIX_MAP
 
 
-
-
 class UsageReporter(CLI):
     CLI_OPTIONS = {
         "storage": ("the VSC filesystems that are checked by this script", None, "extend", []),
@@ -102,11 +100,10 @@ class UsageReporter(CLI):
     def _translate_gpfs(self, entity, kind, fileset, fs):
 
         if kind == "USR":
-            entity = "vsc" + entity[2:]   # translate to the actual VSC ID
+            entity = "vsc" + entity[2:]  # translate to the actual VSC ID
             fileset = self.fileset_map[fs][fileset]["filesetName"]
 
         return entity, fileset
-
 
     def process_event(self, event, dry_run):
         if event and event.filesystem in self.system_storage_map.values():
@@ -190,7 +187,7 @@ class UsageReporter(CLI):
         entries = []
         for family in text_string_to_metric_families(response.text):
             for sample in family.samples:
-                #logging.debug("Got data: %s, %s, %s", sample.name, sample.labels, sample.value)
+                # logging.debug("Got data: %s, %s, %s", sample.name, sample.labels, sample.value)
                 entries.append({
                     "name": sample.name,
                     "tags": sample.labels,  # already a dict: {"fs": ..., "fileset": ..., "user": ...}

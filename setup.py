@@ -35,6 +35,7 @@ PACKAGE = {
         'vsc-config >= 3.16.0',
         'vsc-filesystems >= 2.0.0',
         'vsc-kafka',
+        'prometheus_client',
     ],
     'extras_require': {
         'oceanstor': ['vsc-filesystem-oceanstor >= 0.6.0'],
