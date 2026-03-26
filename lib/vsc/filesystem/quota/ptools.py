@@ -104,16 +104,15 @@ class UsageReporter(CLI):
             try:
                 uid = int(entity)
             except ValueError:
-                logging.debug("Not a numerical uid for entity: %s", entity)
+                logging.error("Not a numerical uid for entity: %s", entity)
                 return None, None
             try:
                 pw_entry = pwd.getpwuid(uid)
                 entity = pw_entry.pw_name  # should be the vsc username if it is known to sssd
             except KeyError:
-                logging.debug("UID %s not known to sssd, skipping", uid)
+                logging.warning("UID %s not known to sssd, skipping", uid)
                 return None, None
 
-            entity = "vsc" + entity[2:]  # translate to the actual VSC ID
             fileset = self.fileset_map[fs][fileset]["filesetName"]
 
         return entity, fileset
@@ -128,7 +127,14 @@ class UsageReporter(CLI):
                 if not dry_run:
                     self.cache.set(cache_key, event, expire=864000)
                 logging.debug("Event %s differs from %s, adding to usage list", event, cached_usage)
-                self.usage_list.append(event)
+
+                # user and fileset may be a number and need translation, but only for the events we will
+                # actually upload
+                entity, fileset = self._translate_gpfs(event.entity, event.kind, event.fileset, event.filesystem)
+                event = event._replace(entity=entity, fileset=fileset)
+
+                if entity is not None and fileset is not None:
+                    self.usage_list.append(event)
 
     def consolidate(self, entries):
         """
@@ -151,16 +157,15 @@ class UsageReporter(CLI):
 
             # user may not be present for fileset-level metrics
             entity = tags.get("user", None) or tags.get("fileset", None)
+            fileset = tags.get("fileset")  # will always pass
+            fs = tags["fs"]
 
-            # user and fileset may be a number and need translation
-            entity, fileset = self._translate_gpfs(entity, kind, tags["fileset"], tags["fs"])
-
-            logging.debug("entry data: kind %s - fs %s - fileset %s - entity -%s", kind, tags["fs"], fileset, entity)
+            logging.debug("entry data: kind %s - fs %s - fileset %s - entity -%s", kind, fs, fileset, entity)
 
             if entity is None or fileset is None:
                 continue
 
-            key = (tags["fs"], fileset, entity, kind)
+            key = (fs, fileset, entity, kind)
 
             grouped[key]["kind"] = kind
             grouped[key]["fields"][field] = entry["value"]
@@ -252,7 +257,7 @@ class UsageReporter(CLI):
             usr_quota_data = [
                 q for q in self.usage_list if self.system_storage_map[storage_name] == q.filesystem and q.kind == "USR"
             ]
-            logging.debug("Usr quota for storage %s: %s", storage_name, usr_quota_data)
+            logging.info("Usr quota for storage %s: %s", storage_name, usr_quota_data)
             self.process_user_quota(storage_name, usr_quota_data, ap_client)
 
     def process_user_quota(self, storage_name, quota_list, client):
@@ -264,9 +269,11 @@ class UsageReporter(CLI):
 
         with DjangoPusher(storage_name, client, QUOTA_USER_KIND, self.options.dry_run) as pusher:
             for quota in quota_list:
-                if not quota.entity.startswith("vsc40075"):
+                if not quota.entity or not quota.entity.startswith("vsc40075"):
                     # no longer a known user, we got the numerical UID, so no need to push info
                     continue
+
+                logging.info("Pushing data %s", quota)
 
                 user_name = quota.entity
                 fileset_name = path_template["user"](user_name)[1]
