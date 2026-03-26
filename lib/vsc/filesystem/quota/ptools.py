@@ -30,6 +30,7 @@ Helper functions for all things quota related.
 """
 
 import logging
+import pwd
 import re
 from collections import defaultdict
 from prometheus_client.parser import text_string_to_metric_families
@@ -99,6 +100,19 @@ class UsageReporter(CLI):
     def _translate_gpfs(self, entity, kind, fileset, fs):
 
         if kind == "USR":
+
+            try:
+                uid = int(entity)
+            except ValueError:
+                logging.debug("Not a numerical uid for entity: %s", entity)
+                return None, None
+            try:
+                pw_entry = pwd.getpwuid(uid)
+                entity = pw_entry.pw_name  # should be the vsc username if it is known to sssd
+            except KeyError:
+                logging.debug("UID %s not known to sssd, skipping", uid)
+                return None, None
+
             entity = "vsc" + entity[2:]  # translate to the actual VSC ID
             fileset = self.fileset_map[fs][fileset]["filesetName"]
 
@@ -142,6 +156,9 @@ class UsageReporter(CLI):
             entity, fileset = self._translate_gpfs(entity, kind, tags["fileset"], tags["fs"])
 
             logging.debug("entry data: kind %s - fs %s - fileset %s - entity -%s", kind, tags["fs"], fileset, entity)
+
+            if entity is None or fileset is None:
+                continue
 
             key = (tags["fs"], fileset, entity, kind)
 
@@ -230,7 +247,7 @@ class UsageReporter(CLI):
                 if self.system_storage_map[storage_name] == q.filesystem and q.kind == "FILESET"
             ]
             logging.debug("Fileset quota for storage %s: %s", storage_name, fileset_quota_data)
-            self.process_fileset_quota(storage_name, fileset_quota_data, ap_client)
+            #self.process_fileset_quota(storage_name, fileset_quota_data, ap_client)
 
             usr_quota_data = [
                 q for q in self.usage_list if self.system_storage_map[storage_name] == q.filesystem and q.kind == "USR"
@@ -247,7 +264,7 @@ class UsageReporter(CLI):
 
         with DjangoPusher(storage_name, client, QUOTA_USER_KIND, self.options.dry_run) as pusher:
             for quota in quota_list:
-                if not quota.entity.startswith("vsc"):
+                if not quota.entity.startswith("vsc40075"):
                     # no longer a known user, we got the numerical UID, so no need to push info
                     continue
 
