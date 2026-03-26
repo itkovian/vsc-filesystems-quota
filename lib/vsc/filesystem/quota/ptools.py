@@ -29,7 +29,6 @@ Helper functions for all things quota related.
 @author: Andy Georges (Ghent University)
 """
 
-import json
 import logging
 import re
 from collections import defaultdict

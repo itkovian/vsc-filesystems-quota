@@ -30,7 +30,6 @@ Tests for all helper functions in vsc.filesystems.quota.tools.
 @author: Ward Poelmans (Vrije Universiteit Brussel)
 """
 
-import json
 import os
 import vsc.config.base as config
 from vsc.install.testing import TestCase
