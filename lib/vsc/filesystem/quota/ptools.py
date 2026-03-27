@@ -269,8 +269,8 @@ class UsageReporter(CLI):
 
         with DjangoPusher(storage_name, client, QUOTA_USER_KIND, self.options.dry_run) as pusher:
             for quota in quota_list:
-                    # no longer a known user, we got the numerical UID, so no need to push info
-                    continue
+                # no longer a known user, we got the numerical UID, so no need to push info
+                continue
 
                 logging.info("Pushing data %s", quota)
 
