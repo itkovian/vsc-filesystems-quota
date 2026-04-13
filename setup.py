@@ -23,7 +23,7 @@ import vsc.install.shared_setup as shared_setup
 from vsc.install.shared_setup import ag
 
 PACKAGE = {
-    'version': '2.2.4',
+    'version': '2.3.0',
     'author': [ag],
     'maintainer': [ag],
     'excluded_pkgs_rpm': ['vsc', 'vsc.filesystem', 'vsc.filesystem.quota'],
@@ -35,6 +35,7 @@ PACKAGE = {
         'vsc-config >= 3.16.0',
         'vsc-filesystems >= 2.0.0',
         'vsc-kafka',
+        'prometheus_client',
     ],
     'extras_require': {
         'oceanstor': ['vsc-filesystem-oceanstor >= 0.6.0'],

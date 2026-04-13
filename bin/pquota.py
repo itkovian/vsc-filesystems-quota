@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# Copyright 2013-2026 Ghent University
+# Copyright 2026-2026 Ghent University
 #
 # This file is part of vsc-filesystems-quota,
 # originally created by the HPC team of Ghent University (http://ugent.be/hpc/en),
@@ -25,22 +25,20 @@
 # along with vsc-filesystems-quota. If not, see <http://www.gnu.org/licenses/>.
 #
 """
-Client-side script to gather quota information stored for the user on various filesystems and
-display it in an understandable format.
+Script to check for quota transgressions and notify the offending users.
 
-Storing the quota information in a cache file accessible only to the user is taking too long
-and will take even longer in the future. This approach is no longer used. Users should consult
-the account page for cache quota information (with an accuracy of 10 minutes).
+- relies on mmrepquota to get a quick estimate of user quota
+- checks all storage systems that are listed in /etc/quota_check.conf
+- writes quota information in gzipped json files in the target directory for the
+  affected entity (user, project, vo)
+- mails a user, vo or project moderator
+- can dump data to the account page (through a REST API) or in files in the user's directories
 
-
-@author: Andy Georges (Ghent University)
+@author Andy Georges
 """
-def main():
-
-    print("Please consult the VSC account page for quota information at")
-    print("https://account.vscentrum.be\n\n")
-    print("If you are a VO moderator, you can find the VO quota for all members at")
-    print("https://account.vscentrum.be/django/vo/")
+from vsc.filesystem.quota.ptools import UsageReporter
 
 if __name__ == '__main__':
-    main()
+
+    reporter = UsageReporter()
+    reporter.main()
