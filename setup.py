@@ -19,11 +19,11 @@ vsc-filesystems-quota base distribution setup.py
 @author: Kenneth Waegeman (Ghent University)
 @author: Andy Georges (Ghent University)
 """
-import vsc.install.shared_setup as shared_setup
+from vsc.install import shared_setup
 from vsc.install.shared_setup import ag
 
 PACKAGE = {
-    'version': '2.3.0',
+    'version': '2.3.1',
     'author': [ag],
     'maintainer': [ag],
     'excluded_pkgs_rpm': ['vsc', 'vsc.filesystem', 'vsc.filesystem.quota'],
@@ -36,6 +36,7 @@ PACKAGE = {
         'vsc-filesystems >= 2.0.0',
         'vsc-kafka',
         'prometheus_client',
+        'requests <= 2.25',
     ],
     'extras_require': {
         'oceanstor': ['vsc-filesystem-oceanstor >= 0.6.0'],

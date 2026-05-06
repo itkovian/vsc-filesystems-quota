@@ -126,7 +126,7 @@ class UsageReporter(CLI):
             else:
                 if not dry_run:
                     self.cache.set(cache_key, event, expire=864000)
-                logging.debug("Event %s differs from %s, adding to usage list", event, cached_usage)
+                logging.debug("Event %s differs from %s, considering adding to usage list", event, cached_usage)
 
                 # user and fileset may be a number and need translation, but only for the events we will
                 # actually upload
@@ -134,6 +134,7 @@ class UsageReporter(CLI):
                 event = event._replace(entity=entity, fileset=fileset)
 
                 if entity is not None and fileset is not None:
+                    logging.debug("Adding event %s to usage list", event)
                     self.usage_list.append(event)
 
     def consolidate(self, entries):
@@ -252,7 +253,7 @@ class UsageReporter(CLI):
                 if self.system_storage_map[storage_name] == q.filesystem and q.kind == "FILESET"
             ]
             logging.debug("Fileset quota for storage %s: %s", storage_name, fileset_quota_data)
-            #self.process_fileset_quota(storage_name, fileset_quota_data, ap_client)
+            self.process_fileset_quota(storage_name, fileset_quota_data, ap_client)
 
             usr_quota_data = [
                 q for q in self.usage_list if self.system_storage_map[storage_name] == q.filesystem and q.kind == "USR"
@@ -262,26 +263,22 @@ class UsageReporter(CLI):
 
     def process_user_quota(self, storage_name, quota_list, client):
         institute = self.options.host_institute
-        path_template = self.storage.path_templates[institute][storage_name]
 
         logging.info("Logging user quota to account page")
         logging.debug("Considering the following quota items for pushing: %s", quota_list)
 
         with DjangoPusher(storage_name, client, QUOTA_USER_KIND, self.options.dry_run) as pusher:
             for quota in quota_list:
-                # no longer a known user, we got the numerical UID, so no need to push info
-                continue
-
-                logging.info("Pushing data %s", quota)
 
                 user_name = quota.entity
-                fileset_name = path_template["user"](user_name)[1]
                 fileset_re = (
-                    rf"^(vsc[1-4]|{VO_PREFIX_BY_SITE[institute]}|"
-                    rf"{VO_SHARED_PREFIX_BY_SITE[institute]}|{fileset_name})"
+                    rf"^(vsc[1-5]|{VO_PREFIX_BY_SITE[institute]}|"
+                    rf"{VO_SHARED_PREFIX_BY_SITE[institute]})"
                 )
+                entity_re = r"^vsc[1-5]"
 
-                if re.search(fileset_re, quota.fileset):
+                if re.search(fileset_re, quota.fileset) and re.search(entity_re, quota.entity):
+                    logging.debug("Pushing data %s", quota)
                     pusher.push_quota(user_name, quota)
 
     def process_fileset_quota(self, storage_name, quota_list, client):
@@ -293,7 +290,6 @@ class UsageReporter(CLI):
         with DjangoPusher(storage_name, client, QUOTA_VO_KIND, self.options.dry_run) as pusher:
             for quota in quota_list:
                 fileset_name = quota.fileset
-                logging.debug("Fileset %s quota: %s", fileset_name, quota)
 
                 if not fileset_name.startswith(VO_PREFIX_BY_SITE[institute]):
                     continue
@@ -304,6 +300,7 @@ class UsageReporter(CLI):
                     vo_name = fileset_name
                     shared = False
 
+                logging.debug("Pushing data %s", quota)
                 pusher.push_quota(vo_name, quota, shared=shared)
 
     def _update_usage(self, usage):
