@@ -36,6 +36,7 @@ PACKAGE = {
         'vsc-filesystems >= 2.0.0',
         'vsc-kafka',
         'prometheus_client',
+        'requests <= 2.25',
     ],
     'extras_require': {
         'oceanstor': ['vsc-filesystem-oceanstor >= 0.6.0'],
