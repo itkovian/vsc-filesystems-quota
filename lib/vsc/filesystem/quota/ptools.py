@@ -263,7 +263,6 @@ class UsageReporter(CLI):
 
     def process_user_quota(self, storage_name, quota_list, client):
         institute = self.options.host_institute
-        path_template = self.storage.path_templates[institute][storage_name]
 
         logging.info("Logging user quota to account page")
         logging.debug("Considering the following quota items for pushing: %s", quota_list)
