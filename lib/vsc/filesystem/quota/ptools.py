@@ -272,7 +272,6 @@ class UsageReporter(CLI):
             for quota in quota_list:
 
                 user_name = quota.entity
-                fileset_name = path_template["user"](user_name)[1]
                 fileset_re = (
                     rf"^(vsc[1-5]|{VO_PREFIX_BY_SITE[institute]}|"
                     rf"{VO_SHARED_PREFIX_BY_SITE[institute]})"
