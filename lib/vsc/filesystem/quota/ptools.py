@@ -275,7 +275,7 @@ class UsageReporter(CLI):
                     rf"^(vsc[1-5]|{VO_PREFIX_BY_SITE[institute]}|"
                     rf"{VO_SHARED_PREFIX_BY_SITE[institute]})"
                 )
-                entity_re = rf"^vsc[1-5]"
+                entity_re = r"^vsc[1-5]"
 
                 if re.search(fileset_re, quota.fileset) and re.search(entity_re, quota.entity):
                     logging.debug("Pushing data %s", quota)

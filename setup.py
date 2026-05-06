@@ -19,7 +19,7 @@ vsc-filesystems-quota base distribution setup.py
 @author: Kenneth Waegeman (Ghent University)
 @author: Andy Georges (Ghent University)
 """
-import vsc.install.shared_setup as shared_setup
+from vsc.install import shared_setup
 from vsc.install.shared_setup import ag
 
 PACKAGE = {
